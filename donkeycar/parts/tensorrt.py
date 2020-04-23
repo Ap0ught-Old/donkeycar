@@ -31,13 +31,21 @@ class TensorRTLinear(KerasPilot):
         uff_model = Path(model_path)
         metadata_path = Path('%s/%s.metadata' % (uff_model.parent.as_posix(), uff_model.stem))
         with open(metadata_path.as_posix(), 'r') as metadata, trt.Builder(self.logger) as builder, builder.create_network() as network, trt.UffParser() as parser:
+            
+            # Without this max_workspace_size setting, I was getting:
+            # Building CUDA Engine
+            # [TensorRT] ERROR: Internal error: could not find any implementation for node 2-layer MLP, try increasing the workspace size with IBuilder::setMaxWorkspaceSize()
+            # [TensorRT] ERROR: ../builder/tacticOptimizer.cpp (1230) - OutOfMemory Error in computeCosts: 0
+            builder.max_workspace_size = 1 << 20 #common.GiB(1)
+            builder.max_batch_size = 1
+
             metadata = json.loads(metadata.read())
             # Configure inputs and outputs
             print('Configuring I/O')
             input_names = metadata['input_names']
             output_names = metadata['output_names']
             for name in input_names:
-                parser.register_input(name, (self.cfg.TARGET_D, self.cfg.TARGET_W, self.cfg.TARGET_H))
+                parser.register_input(name, (self.cfg.TARGET_D, self.cfg.TARGET_H, self.cfg.TARGET_W))
 
             for name in output_names:
                 parser.register_output(name)
@@ -52,6 +60,7 @@ class TensorRTLinear(KerasPilot):
             print('Ready')
 
     def run(self, image):
+        # Channel first image format
         image = image.transpose((2,0,1))
         # Flatten it to a 1D array.
         image = image.ravel()
